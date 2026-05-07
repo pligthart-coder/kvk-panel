@@ -16,10 +16,17 @@ type CarerixCheckState =
   | { kind: "not-found" }
   | { kind: "error"; message: string };
 
+type CreateState =
+  | { kind: "idle" }
+  | { kind: "creating" }
+  | { kind: "success"; companyId: string }
+  | { kind: "error"; message: string };
+
 export default function Page() {
   const [kvkInput, setKvkInput] = useState("");
   const [kvk, setKvk] = useState<KvkState>({ kind: "idle" });
   const [carerixCheck, setCarerixCheck] = useState<CarerixCheckState>({ kind: "idle" });
+  const [createState, setCreateState] = useState<CreateState>({ kind: "idle" });
   const [token, setToken] = useState<string>("");
   const [mailSameAsVisit, setMailSameAsVisit] = useState(true);
 
@@ -93,10 +100,50 @@ export default function Page() {
     }
   }, [kvkInput, token, checkCarerix]);
 
+  const createCompany = useCallback(async () => {
+    if (kvk.kind !== "loaded") return;
+    
+    setCreateState({ kind: "creating" });
+    
+    try {
+      const url = token 
+        ? `/api/carerix/create-company?token=${token}`
+        : `/api/carerix/create-company`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          kvkCompany: kvk.data,
+        }),
+      });
+      
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.details ?? body.error ?? `HTTP ${res.status}`);
+      }
+      
+      const data = await res.json();
+      setCreateState({ kind: "success", companyId: data.companyId });
+      
+      // Refresh Carerix check to show it now exists
+      if (kvk.data.kvkNumber) {
+        await checkCarerix(kvk.data.kvkNumber);
+      }
+    } catch (err) {
+      setCreateState({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Aanmaken mislukt",
+      });
+    }
+  }, [kvk, token, checkCarerix]);
+
   const clearForm = () => {
     setKvkInput("");
     setKvk({ kind: "idle" });
     setCarerixCheck({ kind: "idle" });
+    setCreateState({ kind: "idle" });
     setMailSameAsVisit(true);
   };
 
@@ -196,6 +243,18 @@ export default function Page() {
             </div>
           )}
 
+          {createState.kind === "success" && (
+            <div className="bg-green-50 text-green-900 border border-green-200 rounded-md px-3 py-2 text-xs font-medium">
+              ✅ Bedrijf succesvol aangemaakt in Carerix! (ID: {createState.companyId})
+            </div>
+          )}
+
+          {createState.kind === "error" && (
+            <div className="bg-red-50 text-red-900 border border-red-200 rounded-md px-3 py-2 text-xs font-medium">
+              ❌ Aanmaken mislukt: {createState.message}
+            </div>
+          )}
+
           <section className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
             <h2 className="text-sm font-semibold mb-3 text-gray-800">Bedrijfsgegevens</h2>
             <CompanyForm company={company} mailSameAsVisit={mailSameAsVisit} setMailSameAsVisit={setMailSameAsVisit} />
@@ -207,14 +266,22 @@ export default function Page() {
                 Leegmaken
               </button>
               <button
-                disabled={!company?.name}
-                className={`px-4 py-2 rounded-md text-xs font-semibold transition ${
-                  company?.name
+                onClick={createCompany}
+                disabled={!company?.name || createState.kind === "creating" || carerixCheck.kind === "exists"}
+                className={`px-4 py-2 rounded-md text-xs font-semibold transition flex items-center gap-2 ${
+                  company?.name && carerixCheck.kind !== "exists"
                     ? "bg-blue-500 text-white hover:bg-blue-600"
                     : "bg-blue-500 text-white opacity-60 cursor-not-allowed"
                 }`}
               >
-                Registreer in ATS
+                {createState.kind === "creating" ? (
+                  <>
+                    <span className="inline-block h-3 w-3 border-2 border-white border-r-transparent rounded-full animate-spin" />
+                    Aanmaken...
+                  </>
+                ) : (
+                  "Registreer in ATS"
+                )}
               </button>
             </div>
           </section>

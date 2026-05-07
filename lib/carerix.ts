@@ -122,3 +122,93 @@ export async function searchCompanyByKvk(
     exists: false,
   };
 }
+
+/**
+ * Create a new company in Carerix with KVK data
+ */
+export async function createCompanyInCarerix(kvkCompany: any): Promise<{ success: boolean; companyId?: string; error?: string }> {
+  const config: CarerixConfig = {
+    clientId: process.env.CARERIX_CLIENT_ID!,
+    clientSecret: process.env.CARERIX_CLIENT_SECRET!,
+    apiUrl: process.env.CARERIX_API_URL || 'https://api.carerix.io/graphql/v1/graphql',
+    tokenUrl: process.env.CARERIX_TOKEN_URL || 'https://id-s2.carerix.io/auth/realms/partner4/protocol/openid-connect/token',
+  };
+
+  // Get access token
+  const accessToken = await getAccessToken(config);
+
+  // Build full address string
+  const addressParts = [
+    kvkCompany.address.street,
+    kvkCompany.address.houseNumber,
+    kvkCompany.address.houseNumberAddition,
+  ].filter(Boolean);
+  const fullAddress = addressParts.join(' ');
+
+  // GraphQL mutation to create company (CRCompany type)
+  const mutation = `
+    mutation CreateCompany($request: CRCompanyRequest!) {
+      crCompanyCreate(request: $request) {
+        _id
+        name
+        kvkNumber
+      }
+    }
+  `;
+
+  const variables = {
+    request: {
+      _kind: 'CRCompany',
+      name: kvkCompany.name,
+      kvkNumber: kvkCompany.kvkNumber,
+      address: fullAddress || null,
+      postalCode: kvkCompany.address.postalCode || null,
+      city: kvkCompany.address.city || null,
+      country: kvkCompany.address.country || null,
+      website: kvkCompany.website || null,
+    },
+  };
+
+  const response = await fetch(config.apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      query: mutation,
+      variables,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    return {
+      success: false,
+      error: `Carerix API error: ${response.status} ${error}`,
+    };
+  }
+
+  const result = await response.json();
+
+  if (result.errors) {
+    return {
+      success: false,
+      error: `GraphQL errors: ${JSON.stringify(result.errors)}`,
+    };
+  }
+
+  const createdCompany = result.data?.crCompanyCreate;
+  
+  if (createdCompany) {
+    return {
+      success: true,
+      companyId: createdCompany._id,
+    };
+  }
+
+  return {
+    success: false,
+    error: 'No company returned from mutation',
+  };
+}
