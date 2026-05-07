@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import type { KvkCompany } from "@/lib/types";
 
 // ---------- State machine -----------------------------------------------
@@ -16,6 +16,16 @@ type KvkState =
 export default function Page() {
   const [kvkInput, setKvkInput] = useState("");
   const [kvk, setKvk] = useState<KvkState>({ kind: "idle" });
+  const [token, setToken] = useState<string>("");
+
+  // Extract token from URL on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    if (urlToken) {
+      setToken(urlToken);
+    }
+  }, []);
 
   const search = useCallback(async () => {
     const trimmed = kvkInput.trim();
@@ -26,7 +36,11 @@ export default function Page() {
     setKvk({ kind: "loading" });
 
     try {
-      const res = await fetch(`/api/kvk/${trimmed}`);
+      // Pass token to API if available
+      const url = token 
+        ? `/api/kvk/${trimmed}?token=${token}`
+        : `/api/kvk/${trimmed}`;
+      const res = await fetch(url);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -39,7 +53,7 @@ export default function Page() {
         message: err instanceof Error ? err.message : "Onbekende fout",
       });
     }
-  }, [kvkInput]);
+  }, [kvkInput, token]);
 
   return (
     <main className="relative z-10 mx-auto max-w-2xl px-6 py-12 md:py-20">
