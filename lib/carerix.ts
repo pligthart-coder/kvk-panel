@@ -69,7 +69,7 @@ export async function searchCompanyByKvk(
   // Get access token
   const accessToken = await getAccessToken(config);
 
-  // GraphQL query to search for company by KVK number
+  // GraphQL query to search for company by KVK number (CRCompany type)
   // Note: Carerix qualifier doesn't support GraphQL variables, so we interpolate directly
   const query = `
     query SearchCompany {
@@ -79,6 +79,7 @@ export async function searchCompanyByKvk(
         totalElements
         items {
           _id
+          _kind
           name
           kvkNumber
         }
