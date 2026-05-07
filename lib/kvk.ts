@@ -173,6 +173,11 @@ type KvkBasisprofielResponse = {
   rsin?: string;
   handelsnamen?: Array<{ naam: string; volgorde?: number }>;
   totaalWerkzamePersonen?: number;
+  sbiActiviteiten?: Array<{
+    sbiCode: string;
+    sbiOmschrijving: string;
+    indHoofdactiviteit?: string;
+  }>;
   _embedded?: {
     eigenaar?: {
       rechtsvorm?: string;
@@ -186,11 +191,13 @@ type KvkBasisprofielResponse = {
       sbiActiviteiten?: Array<{
         sbiCode: string;
         sbiOmschrijving: string;
+        indHoofdactiviteit?: string;
       }>;
       adressen?: Array<{
         type: string;
         straatnaam?: string;
         huisnummer?: number;
+        huisletter?: string;
         huisnummerToevoeging?: string;
         postcode?: string;
         plaats?: string;
@@ -199,7 +206,7 @@ type KvkBasisprofielResponse = {
     };
   };
   materieleRegistratie?: {
-    registratieAanvang?: string;
+    datumAanvang?: string;
     datumEinde?: string | null;
   };
   links?: Array<{
@@ -226,13 +233,13 @@ function mapKvkResponse(data: KvkBasisprofielResponse): KvkCompany {
     address: {
       street: bezoek?.straatnaam ?? null,
       houseNumber: bezoek?.huisnummer != null ? String(bezoek.huisnummer) : null,
-      houseNumberAddition: bezoek?.huisnummerToevoeging ?? null,
+      houseNumberAddition: [bezoek?.huisletter, bezoek?.huisnummerToevoeging].filter(Boolean).join(" ") || null,
       postalCode: bezoek?.postcode ?? null,
       city: bezoek?.plaats ?? null,
       country: bezoek?.land ?? "Nederland",
     },
     website: hoofd?.websites?.[0] ?? null,
-    sbiCodes: (hoofd?.sbiActiviteiten ?? []).map((s) => ({
+    sbiCodes: (data.sbiActiviteiten ?? hoofd?.sbiActiviteiten ?? []).map((s) => ({
       code: s.sbiCode,
       description: s.sbiOmschrijving,
     })),
