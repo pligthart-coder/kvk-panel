@@ -9,9 +9,17 @@ type KvkState =
   | { kind: "loaded"; data: KvkCompany }
   | { kind: "error"; message: string };
 
+type CarerixCheckState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "exists"; companyId: string; companyName: string }
+  | { kind: "not-found" }
+  | { kind: "error"; message: string };
+
 export default function Page() {
   const [kvkInput, setKvkInput] = useState("");
   const [kvk, setKvk] = useState<KvkState>({ kind: "idle" });
+  const [carerixCheck, setCarerixCheck] = useState<CarerixCheckState>({ kind: "idle" });
   const [token, setToken] = useState<string>("");
   const [mailSameAsVisit, setMailSameAsVisit] = useState(true);
 
@@ -23,6 +31,37 @@ export default function Page() {
     }
   }, []);
 
+  const checkCarerix = useCallback(async (kvkNumber: string) => {
+    setCarerixCheck({ kind: "checking" });
+    
+    try {
+      const url = token 
+        ? `/api/carerix/check-company?kvkNumber=${kvkNumber}&token=${token}`
+        : `/api/carerix/check-company?kvkNumber=${kvkNumber}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      
+      if (data.exists && data.company) {
+        setCarerixCheck({ 
+          kind: "exists", 
+          companyId: data.company._id,
+          companyName: data.company.name 
+        });
+      } else {
+        setCarerixCheck({ kind: "not-found" });
+      }
+    } catch (err) {
+      setCarerixCheck({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Carerix check mislukt",
+      });
+    }
+  }, [token]);
+
   const search = useCallback(async () => {
     const trimmed = kvkInput.trim();
     if (!/^\d{8}$/.test(trimmed)) {
@@ -30,6 +69,7 @@ export default function Page() {
       return;
     }
     setKvk({ kind: "loading" });
+    setCarerixCheck({ kind: "idle" });
 
     try {
       const url = token 
@@ -42,17 +82,21 @@ export default function Page() {
       }
       const data = (await res.json()) as KvkCompany;
       setKvk({ kind: "loaded", data });
+      
+      // Automatically check Carerix after successful KVK lookup
+      await checkCarerix(trimmed);
     } catch (err) {
       setKvk({
         kind: "error",
         message: err instanceof Error ? err.message : "Onbekende fout",
       });
     }
-  }, [kvkInput, token]);
+  }, [kvkInput, token, checkCarerix]);
 
   const clearForm = () => {
     setKvkInput("");
     setKvk({ kind: "idle" });
+    setCarerixCheck({ kind: "idle" });
     setMailSameAsVisit(true);
   };
 
@@ -124,6 +168,31 @@ export default function Page() {
           {kvk.kind === "loaded" && (
             <div className="bg-blue-50 text-blue-900 border border-blue-200 rounded-md px-3 py-2 text-xs font-medium">
               KVK-gegevens succesvol opgehaald voor <strong>{company?.name}</strong>. Controleer de gegevens en klik op "Registreer in ATS" om het bedrijf aan te maken.
+            </div>
+          )}
+
+          {carerixCheck.kind === "checking" && (
+            <div className="bg-gray-50 text-gray-700 border border-gray-200 rounded-md px-3 py-2 text-xs font-medium flex items-center gap-2">
+              <span className="inline-block h-3 w-3 border-2 border-gray-600 border-r-transparent rounded-full animate-spin" />
+              Controleren of bedrijf al bestaat in Carerix...
+            </div>
+          )}
+
+          {carerixCheck.kind === "exists" && (
+            <div className="bg-orange-50 text-orange-900 border border-orange-200 rounded-md px-3 py-2 text-xs font-medium">
+              ⚠️ Dit bedrijf bestaat al in Carerix als <strong>{carerixCheck.companyName}</strong> (ID: {carerixCheck.companyId}).
+            </div>
+          )}
+
+          {carerixCheck.kind === "not-found" && (
+            <div className="bg-green-50 text-green-900 border border-green-200 rounded-md px-3 py-2 text-xs font-medium">
+              ✓ Dit bedrijf bestaat nog niet in Carerix en kan worden geregistreerd.
+            </div>
+          )}
+
+          {carerixCheck.kind === "error" && (
+            <div className="bg-yellow-50 text-yellow-900 border border-yellow-200 rounded-md px-3 py-2 text-xs font-medium">
+              ⚠️ Carerix check mislukt: {carerixCheck.message}. Je kunt toch proberen te registreren.
             </div>
           )}
 
