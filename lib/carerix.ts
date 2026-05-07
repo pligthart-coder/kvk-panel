@@ -12,7 +12,7 @@ type CarerixConfig = {
 type CarerixCompany = {
   _id: string;
   name: string;
-  chamberOfCommerceNr?: string;
+  kvkNumber?: string;
 };
 
 type CarerixCompanySearchResult = {
@@ -28,7 +28,7 @@ async function getAccessToken(config: CarerixConfig): Promise<string> {
     grant_type: 'client_credentials',
     client_id: config.clientId,
     client_secret: config.clientSecret,
-    scope: 'urn:cx/core:data/companies:read urn:cx/core:data/companies:manage',
+    scope: 'urn:cx/cx5Wrapper:data:manage',
   });
 
   const response = await fetch(config.tokenUrl, {
@@ -41,10 +41,15 @@ async function getAccessToken(config: CarerixConfig): Promise<string> {
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Failed to get Carerix access token: ${response.status} ${error}`);
+    throw new Error(`Failed to get Carerix access token: ${response.status} - ${error.substring(0, 200)}`);
   }
 
   const data = await response.json();
+  
+  if (!data.access_token) {
+    throw new Error(`No access token in response: ${JSON.stringify(data)}`);
+  }
+  
   return data.access_token;
 }
 
@@ -58,23 +63,24 @@ export async function searchCompanyByKvk(
     clientId: process.env.CARERIX_CLIENT_ID!,
     clientSecret: process.env.CARERIX_CLIENT_SECRET!,
     apiUrl: process.env.CARERIX_API_URL || 'https://api.carerix.io/graphql/v1/graphql',
-    tokenUrl: process.env.CARERIX_TOKEN_URL || 'https://api.carerix.io/oauth/token',
+    tokenUrl: process.env.CARERIX_TOKEN_URL || 'https://id-s2.carerix.io/auth/realms/partner4/protocol/openid-connect/token',
   };
 
   // Get access token
   const accessToken = await getAccessToken(config);
 
   // GraphQL query to search for company by KVK number
+  // Note: Carerix qualifier doesn't support GraphQL variables, so we interpolate directly
   const query = `
-    query SearchCompany($kvkNumber: String!) {
+    query SearchCompany {
       crCompanyPage(
-        qualifier: "chamberOfCommerceNr = '$kvkNumber'"
+        qualifier: "kvkNumber = '${kvkNumber}'"
       ) {
         totalElements
         items {
           _id
           name
-          chamberOfCommerceNr
+          kvkNumber
         }
       }
     }
@@ -88,7 +94,6 @@ export async function searchCompanyByKvk(
     },
     body: JSON.stringify({
       query,
-      variables: { kvkNumber },
     }),
   });
 
