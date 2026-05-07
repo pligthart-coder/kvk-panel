@@ -114,38 +114,69 @@ export async function fetchKvkCompany(kvkNumber: string): Promise<KvkCompany | n
     return MOCK_COMPANIES[kvkNumber] ?? makeFallbackMock(kvkNumber);
   }
 
-  const baseUrl = process.env.KVK_API_BASE_URL ?? "https://api.kvk.nl/api/v1";
   const apiKey = process.env.KVK_API_KEY!;
 
-  // We halen het basisprofiel op. Documentatie:
-  // https://developers.kvk.nl/documentation/basisprofiel-api
+  // Probeer eerst de Zoeken API (v2) - deze is vaak sneller
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
   try {
-    const res = await fetch(`${baseUrl}/basisprofielen/${kvkNumber}`, {
+    // Gebruik de Zoeken API om het bedrijf te vinden
+    const searchUrl = `https://api.kvk.nl/test/api/v2/zoeken?kvkNummer=${kvkNumber}`;
+    const searchRes = await fetch(searchUrl, {
       headers: { 
         apikey: apiKey,
         'Accept': 'application/json'
       },
-      // Cache for 1 hour to improve performance
       next: { revalidate: 3600 },
       signal: controller.signal,
     });
+    
     clearTimeout(timeoutId);
 
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`KVK API error ${res.status}: ${text.slice(0, 200)}`);
+    if (searchRes.status === 404) return null;
+    if (!searchRes.ok) {
+      const text = await searchRes.text();
+      throw new Error(`KVK Zoeken API error ${searchRes.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = (await res.json()) as KvkBasisprofielResponse;
-    return mapKvkResponse(data);
+    const searchData = await searchRes.json() as any;
+    
+    // Check of we resultaten hebben
+    if (!searchData.resultaten || searchData.resultaten.length === 0) {
+      return null;
+    }
+
+    // Neem het eerste resultaat
+    const result = searchData.resultaten[0];
+    
+    // Map de zoekresultaten naar ons formaat
+    return {
+      kvkNumber: result.kvkNummer || kvkNumber,
+      name: result.naam || result.handelsnaam || "Onbekend",
+      tradeNames: result.handelsnamen || [],
+      legalForm: result.rechtsvorm || null,
+      establishmentNumber: result.vestigingsnummer || null,
+      isActive: result.actief !== false,
+      address: {
+        street: result.straatnaam || result.adres?.straatnaam || "",
+        houseNumber: result.huisnummer?.toString() || result.adres?.huisnummer?.toString() || "",
+        houseNumberAddition: result.huisnummerToevoeging || result.adres?.huisnummerToevoeging || null,
+        postalCode: result.postcode || result.adres?.postcode || "",
+        city: result.plaats || result.adres?.plaats || "",
+        country: "Nederland",
+      },
+      website: result.websites?.[0] || null,
+      sbiCodes: (result.sbiActiviteiten || []).map((sbi: any) => ({
+        code: sbi.sbiCode,
+        description: sbi.sbiOmschrijving,
+      })),
+      registeredAt: result.registratiedatum || null,
+    };
   } catch (err) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('KVK API reageert niet. Controleer of de API key geldig is.');
+      throw new Error('KVK API timeout - de API reageert te traag');
     }
     throw err;
   }
