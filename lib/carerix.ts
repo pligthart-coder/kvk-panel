@@ -172,10 +172,17 @@ export async function createCompanyInCarerix(kvkCompany: any): Promise<{ success
           value: kvkCompany.address.country
         }
       } : null,
+      toStatusNode: {
+        _kind: 'CRDataNode',
+        _lookup: {
+          key: 'value',
+          value: kvkCompany.isActive ? 'Actief' : 'Inactief'
+        }
+      },
       // Note: Carerix uses "visit" prefix for address fields
       // Most KVK fields are NOT supported in the standard schema:
       // - tradeNames, legalForm, establishmentNumber, rsin
-      // - isActive, sbiCodes, registeredAt, employeeCount, branchCount
+      // - sbiCodes, registeredAt, employeeCount, branchCount
       // You need to add these as CUSTOM FIELDS in Carerix to store this data
     },
   };
