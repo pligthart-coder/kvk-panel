@@ -1,0 +1,183 @@
+import type { KvkCompany } from "./types";
+
+/**
+ * Bepaalt of we de mock-modus gebruiken (geen echte API key ingesteld).
+ */
+export function isKvkMock(): boolean {
+  const key = process.env.KVK_API_KEY?.trim();
+  return !key || key === "mock";
+}
+
+/**
+ * Mock-data voor lokale ontwikkeling. Een paar bekende KVK-nummers + een fallback.
+ */
+const MOCK_COMPANIES: Record<string, KvkCompany> = {
+  "69599084": {
+    kvkNumber: "69599084",
+    name: "Bol.com B.V.",
+    tradeNames: ["Bol.com", "Bol"],
+    legalForm: "Besloten Vennootschap",
+    establishmentNumber: "000038509504",
+    isActive: true,
+    address: {
+      street: "Papendorpseweg",
+      houseNumber: "100",
+      houseNumberAddition: null,
+      postalCode: "3528BJ",
+      city: "Utrecht",
+      country: "Nederland",
+    },
+    website: "https://www.bol.com",
+    sbiCodes: [
+      { code: "4791", description: "Detailhandel via internet" },
+    ],
+    registeredAt: "2017-09-18",
+  },
+  "33191000": {
+    kvkNumber: "33191000",
+    name: "Heineken Nederland B.V.",
+    tradeNames: ["Heineken Nederland"],
+    legalForm: "Besloten Vennootschap",
+    establishmentNumber: "000017455020",
+    isActive: true,
+    address: {
+      street: "Tweede Weteringplantsoen",
+      houseNumber: "21",
+      houseNumberAddition: null,
+      postalCode: "1017ZD",
+      city: "Amsterdam",
+      country: "Nederland",
+    },
+    website: "https://www.heineken.com",
+    sbiCodes: [
+      { code: "1105", description: "Vervaardiging van bier" },
+    ],
+    registeredAt: "1991-01-01",
+  },
+};
+
+function makeFallbackMock(kvkNumber: string): KvkCompany {
+  return {
+    kvkNumber,
+    name: `Demo Bedrijf ${kvkNumber} B.V.`,
+    tradeNames: [`Demo ${kvkNumber}`],
+    legalForm: "Besloten Vennootschap",
+    establishmentNumber: `0000${kvkNumber}`,
+    isActive: true,
+    address: {
+      street: "Voorbeeldstraat",
+      houseNumber: "1",
+      houseNumberAddition: null,
+      postalCode: "1000AA",
+      city: "Amsterdam",
+      country: "Nederland",
+    },
+    website: null,
+    sbiCodes: [{ code: "7022", description: "Organisatieadviesbureaus" }],
+    registeredAt: "2020-01-01",
+  };
+}
+
+/**
+ * Haalt een bedrijf op uit de KVK API (of mock).
+ * @param kvkNumber 8-cijferig KVK-nummer
+ */
+export async function fetchKvkCompany(kvkNumber: string): Promise<KvkCompany | null> {
+  if (!/^\d{8}$/.test(kvkNumber)) {
+    throw new Error("KVK-nummer moet exact 8 cijfers bevatten.");
+  }
+
+  if (isKvkMock()) {
+    // Simuleer netwerklatency
+    await new Promise((r) => setTimeout(r, 350));
+    return MOCK_COMPANIES[kvkNumber] ?? makeFallbackMock(kvkNumber);
+  }
+
+  const baseUrl = process.env.KVK_API_BASE_URL ?? "https://api.kvk.nl/api/v1";
+  const apiKey = process.env.KVK_API_KEY!;
+
+  // We halen het basisprofiel op. Documentatie:
+  // https://developers.kvk.nl/documentation/basisprofiel-api
+  const res = await fetch(`${baseUrl}/basisprofielen/${kvkNumber}`, {
+    headers: { apikey: apiKey },
+    // Caching uitschakelen — bedrijfsgegevens kunnen wijzigen.
+    cache: "no-store",
+  });
+
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`KVK API gaf ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as KvkBasisprofielResponse;
+  return mapKvkResponse(data);
+}
+
+/**
+ * Minimale typing van de KVK Basisprofiel response. Bewust niet exhaustief —
+ * we mappen alleen wat we daadwerkelijk gebruiken.
+ */
+type KvkBasisprofielResponse = {
+  kvkNummer: string;
+  naam?: string;
+  formeleRegistratiedatum?: string;
+  handelsnamen?: Array<{ naam: string; volgorde?: number }>;
+  _embedded?: {
+    eigenaar?: {
+      rechtsvorm?: string;
+      uitgebreideRechtsvorm?: string;
+    };
+    hoofdvestiging?: {
+      vestigingsnummer?: string;
+      websites?: string[];
+      sbiActiviteiten?: Array<{
+        sbiCode: string;
+        sbiOmschrijving: string;
+      }>;
+      adressen?: Array<{
+        type: string;
+        straatnaam?: string;
+        huisnummer?: number;
+        huisnummerToevoeging?: string;
+        postcode?: string;
+        plaats?: string;
+        land?: string;
+      }>;
+    };
+  };
+  materieleRegistratie?: {
+    registratieAanvang?: string;
+    datumEinde?: string | null;
+  };
+  rechtsvorm?: string;
+};
+
+function mapKvkResponse(data: KvkBasisprofielResponse): KvkCompany {
+  const hoofd = data._embedded?.hoofdvestiging;
+  const bezoek = hoofd?.adressen?.find((a) => a.type === "bezoekadres") ??
+    hoofd?.adressen?.[0];
+
+  return {
+    kvkNumber: data.kvkNummer,
+    name: data.naam ?? data.handelsnamen?.[0]?.naam ?? "Onbekend",
+    tradeNames: (data.handelsnamen ?? []).map((h) => h.naam),
+    legalForm: data._embedded?.eigenaar?.rechtsvorm ?? null,
+    establishmentNumber: hoofd?.vestigingsnummer ?? null,
+    isActive: !data.materieleRegistratie?.datumEinde,
+    address: {
+      street: bezoek?.straatnaam ?? null,
+      houseNumber: bezoek?.huisnummer != null ? String(bezoek.huisnummer) : null,
+      houseNumberAddition: bezoek?.huisnummerToevoeging ?? null,
+      postalCode: bezoek?.postcode ?? null,
+      city: bezoek?.plaats ?? null,
+      country: bezoek?.land ?? "Nederland",
+    },
+    website: hoofd?.websites?.[0] ?? null,
+    sbiCodes: (hoofd?.sbiActiviteiten ?? []).map((s) => ({
+      code: s.sbiCode,
+      description: s.sbiOmschrijving,
+    })),
+    registeredAt: data.formeleRegistratiedatum ?? null,
+  };
+}
