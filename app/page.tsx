@@ -3,22 +3,18 @@
 import { useCallback, useState, useEffect } from "react";
 import type { KvkCompany } from "@/lib/types";
 
-// ---------- State machine -----------------------------------------------
-
 type KvkState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "loaded"; data: KvkCompany }
   | { kind: "error"; message: string };
 
-// ---------- Page --------------------------------------------------------
-
 export default function Page() {
   const [kvkInput, setKvkInput] = useState("");
   const [kvk, setKvk] = useState<KvkState>({ kind: "idle" });
   const [token, setToken] = useState<string>("");
+  const [mailSameAsVisit, setMailSameAsVisit] = useState(true);
 
-  // Extract token from URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get("token");
@@ -30,13 +26,12 @@ export default function Page() {
   const search = useCallback(async () => {
     const trimmed = kvkInput.trim();
     if (!/^\d{8}$/.test(trimmed)) {
-      setKvk({ kind: "error", message: "Een KVK-nummer bestaat uit 8 cijfers." });
+      setKvk({ kind: "error", message: "Het KVK-nummer moet precies 8 cijfers bevatten." });
       return;
     }
     setKvk({ kind: "loading" });
 
     try {
-      // Pass token to API if available
       const url = token 
         ? `/api/kvk/${trimmed}?token=${token}`
         : `/api/kvk/${trimmed}`;
@@ -55,274 +50,378 @@ export default function Page() {
     }
   }, [kvkInput, token]);
 
+  const clearForm = () => {
+    setKvkInput("");
+    setKvk({ kind: "idle" });
+    setMailSameAsVisit(true);
+  };
+
+  const company = kvk.kind === "loaded" ? kvk.data : null;
+
   return (
-    <main className="relative z-10 mx-auto max-w-2xl px-6 py-12 md:py-20">
-      <Header />
+    <div className="w-full p-3 bg-gray-100 min-h-screen">
+      <div className="w-full max-w-7xl mx-auto space-y-2">
+        <main className="space-y-3">
+          <section className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-semibold mb-2 text-gray-800">
+              Zoeken op KVK-nummer
+              <span className="inline-block bg-yellow-100 text-yellow-800 border border-yellow-200 rounded-full px-2 py-0.5 text-[10px] font-semibold ml-2 align-middle">
+                DEMO
+              </span>
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
+              <div>
+                <label htmlFor="kvk-input" className="block text-xs font-medium text-gray-700 mb-1">
+                  KVK-nummer
+                </label>
+                <input
+                  type="text"
+                  id="kvk-input"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 text-xs focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  placeholder="69599084"
+                  maxLength={8}
+                  value={kvkInput}
+                  onChange={(e) => setKvkInput(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={(e) => e.key === "Enter" && search()}
+                />
+                <p className="text-gray-500 mt-1 text-xs">
+                  Alleen cijfers, 8 cijfers. Probeer{" "}
+                  <button
+                    type="button"
+                    onClick={() => setKvkInput("69599084")}
+                    className="font-mono underline decoration-dotted underline-offset-2 hover:text-gray-900"
+                  >
+                    69599084
+                  </button>.
+                </p>
+              </div>
+              <div className="text-right">
+                <button
+                  onClick={search}
+                  disabled={kvkInput.length !== 8 || kvk.kind === "loading"}
+                  className={`px-4 py-2 rounded-md text-xs font-semibold transition ${
+                    kvkInput.length === 8 && kvk.kind !== "loading"
+                      ? "bg-green-500 text-white hover:bg-green-600"
+                      : "bg-gray-200 text-gray-600 cursor-not-allowed opacity-60"
+                  }`}
+                >
+                  {kvk.kind === "loading" ? (
+                    <span className="inline-block h-4 w-4 border-2 border-white border-r-transparent rounded-full animate-spin" />
+                  ) : (
+                    "Ophalen KVK-gegevens"
+                  )}
+                </button>
+              </div>
+            </div>
+          </section>
 
-      <SearchBar
-        value={kvkInput}
-        onChange={setKvkInput}
-        onSubmit={search}
-        loading={kvk.kind === "loading"}
-        disabled={kvk.kind === "loading"}
-      />
+          {kvk.kind === "error" && (
+            <div className="bg-red-50 text-red-900 border border-red-200 rounded-md px-3 py-2 text-xs font-medium">
+              {kvk.message}
+            </div>
+          )}
 
-      <div className="mt-10 space-y-8">
-        {kvk.kind === "error" && <ErrorBlock message={kvk.message} />}
-        {kvk.kind === "loading" && <LoadingBlock />}
-        {kvk.kind === "loaded" && (
-          <div className="animate-fade-up">
-            <CompanyCard company={kvk.data} />
-          </div>
-        )}
+          {kvk.kind === "loaded" && (
+            <div className="bg-blue-50 text-blue-900 border border-blue-200 rounded-md px-3 py-2 text-xs font-medium">
+              KVK-gegevens succesvol opgehaald voor <strong>{company?.name}</strong>. Controleer de gegevens en klik op "Registreer in ATS" om het bedrijf aan te maken.
+            </div>
+          )}
+
+          <section className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <h2 className="text-sm font-semibold mb-3 text-gray-800">Bedrijfsgegevens</h2>
+            <CompanyForm company={company} mailSameAsVisit={mailSameAsVisit} setMailSameAsVisit={setMailSameAsVisit} />
+            <div className="text-right mt-4 flex justify-end space-x-2">
+              <button
+                onClick={clearForm}
+                className="px-4 py-2 bg-gray-200 text-gray-700 border border-gray-300 rounded-md text-xs font-semibold hover:bg-gray-300 transition"
+              >
+                Leegmaken
+              </button>
+              <button
+                disabled={!company?.name}
+                className={`px-4 py-2 rounded-md text-xs font-semibold transition ${
+                  company?.name
+                    ? "bg-blue-500 text-white hover:bg-blue-600"
+                    : "bg-blue-500 text-white opacity-60 cursor-not-allowed"
+                }`}
+              >
+                Registreer in ATS
+              </button>
+            </div>
+          </section>
+        </main>
       </div>
-
-      <Footer />
-    </main>
+    </div>
   );
 }
 
 // ---------- Components --------------------------------------------------
 
-function Header() {
-  return (
-    <header className="mb-12">
-      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-muted">
-        <span className="h-px w-8 bg-ink/30" />
-        <span>Stap 1 · KVK Lookup</span>
-      </div>
-      <h1 className="mt-4 font-display text-5xl font-medium leading-[1.05] tracking-tight md:text-6xl">
-        Bedrijven{" "}
-        <span className="font-display-italic font-normal text-signal">
-          opzoeken
-        </span>{" "}
-        bij de Kamer
-        <br />
-        van{" "}
-        <span className="font-display-italic font-normal">Koophandel</span>.
-      </h1>
-      <p className="mt-5 max-w-md text-[15px] leading-relaxed text-muted">
-        Voer een 8-cijferig KVK-nummer in om het basisprofiel van het bedrijf
-        op te halen. Carerix-integratie volgt in stap&nbsp;2.
-      </p>
-    </header>
-  );
-}
-
-function SearchBar(props: {
-  value: string;
-  onChange: (v: string) => void;
-  onSubmit: () => void;
-  loading: boolean;
-  disabled: boolean;
+function CompanyForm({ 
+  company, 
+  mailSameAsVisit, 
+  setMailSameAsVisit 
+}: { 
+  company: KvkCompany | null; 
+  mailSameAsVisit: boolean;
+  setMailSameAsVisit: (v: boolean) => void;
 }) {
-  return (
-    <div>
-      <label
-        htmlFor="kvk"
-        className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-ink/60"
-      >
-        KVK-nummer
-      </label>
-      <div className="group relative flex items-stretch overflow-hidden rounded-md border border-ink/20 bg-cream transition focus-within:border-ink focus-within:ring-1 focus-within:ring-ink">
-        <input
-          id="kvk"
-          inputMode="numeric"
-          autoComplete="off"
-          maxLength={8}
-          placeholder="69599084"
-          value={props.value}
-          disabled={props.disabled}
-          onChange={(e) => props.onChange(e.target.value.replace(/\D/g, ""))}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") props.onSubmit();
-          }}
-          className="flex-1 bg-transparent px-5 py-4 font-mono text-lg tracking-wider outline-none placeholder:text-ink/25 disabled:opacity-50"
-        />
-        <button
-          type="button"
-          onClick={props.onSubmit}
-          disabled={props.disabled || props.value.length !== 8}
-          className="flex items-center gap-2 bg-ink px-6 py-4 text-sm font-medium uppercase tracking-[0.15em] text-cream transition enabled:hover:bg-signal disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {props.loading ? (
-            <Spinner />
-          ) : (
-            <>
-              Zoeken
-              <span aria-hidden>→</span>
-            </>
-          )}
-        </button>
-      </div>
-      <p className="mt-2 text-xs text-muted">
-        Probeer{" "}
-        <button
-          type="button"
-          onClick={() => props.onChange("69599084")}
-          className="font-mono underline decoration-dotted underline-offset-2 hover:text-ink"
-        >
-          69599084
-        </button>{" "}
-        of{" "}
-        <button
-          type="button"
-          onClick={() => props.onChange("33191000")}
-          className="font-mono underline decoration-dotted underline-offset-2 hover:text-ink"
-        >
-          33191000
-        </button>
-        .
-      </p>
-    </div>
-  );
-}
-
-function CompanyCard({ company }: { company: KvkCompany }) {
-  const addr = company.address;
-  const fullStreet = [addr.street, addr.houseNumber, addr.houseNumberAddition]
-    .filter(Boolean)
-    .join(" ");
+  const addr = company?.address;
+  const sbi = company?.sbiCodes?.[0];
 
   return (
-    <article className="relative border-l-2 border-ink bg-cream/60 px-6 py-7 backdrop-blur-sm">
-      <div className="absolute -left-px top-0 h-3 w-3 -translate-x-1/2 rounded-full bg-signal" />
-
-      <div className="mb-1 text-[10px] uppercase tracking-[0.25em] text-muted">
-        KVK · Basisprofiel
-      </div>
-      <h2 className="font-display text-3xl font-medium leading-tight tracking-tight">
-        {company.name}
-      </h2>
-
-      <dl className="mt-6 grid grid-cols-1 gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-        <Field label="KVK-nummer">
-          <span className="font-mono text-base">{company.kvkNumber}</span>
-        </Field>
-        <Field label="Status">
-          {company.isActive ? (
-            <span className="inline-flex items-center gap-1.5 text-emerald-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-              Actief
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-              Niet actief
-            </span>
-          )}
-        </Field>
-        <Field label="Rechtsvorm">{company.legalForm ?? "—"}</Field>
-        <Field label="Vestigingsnummer">
-          <span className="font-mono">
-            {company.establishmentNumber ?? "—"}
-          </span>
-        </Field>
-        <Field label="Bezoekadres" wide>
-          {fullStreet ? (
-            <>
-              {fullStreet}
-              <br />
-              {[addr.postalCode, addr.city].filter(Boolean).join("  ")}
-              <br />
-              <span className="text-muted">{addr.country}</span>
-            </>
-          ) : (
-            "—"
-          )}
-        </Field>
-        {company.website && (
-          <Field label="Website" wide>
-            <a
-              href={company.website}
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-dotted underline-offset-2 hover:text-signal"
-            >
-              {company.website}
-            </a>
-          </Field>
-        )}
-        {company.sbiCodes.length > 0 && (
-          <Field label="SBI" wide>
-            <ul className="space-y-1">
-              {company.sbiCodes.map((s) => (
-                <li key={s.code} className="flex gap-3">
-                  <span className="font-mono text-muted">{s.code}</span>
-                  <span>{s.description}</span>
-                </li>
-              ))}
-            </ul>
-          </Field>
-        )}
-      </dl>
-    </article>
-  );
-}
-
-function Field({
-  label,
-  wide,
-  children,
-}: {
-  label: string;
-  wide?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={wide ? "sm:col-span-2" : ""}>
-      <dt className="text-[10px] uppercase tracking-[0.18em] text-muted">
-        {label}
-      </dt>
-      <dd className="mt-1 leading-relaxed">{children}</dd>
-    </div>
-  );
-}
-
-function LoadingBlock() {
-  return (
-    <div className="border-l-2 border-ink/20 px-6 py-7">
-      <div className="mb-3 h-2 w-24 animate-pulse rounded bg-ink/10" />
-      <div className="h-8 w-2/3 animate-pulse rounded bg-ink/10" />
-      <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i}>
-            <div className="mb-2 h-2 w-12 animate-pulse rounded bg-ink/10" />
-            <div className="h-4 w-3/4 animate-pulse rounded bg-ink/10" />
+    <form className="space-y-3 text-xs">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Identificatie */}
+        <div>
+          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-1 border-b border-gray-200">
+            Identificatie
           </div>
-        ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="md:col-span-2">
+              <label className="block font-medium text-gray-700 mb-1">
+                Bedrijfsnaam<span className="text-red-600 ml-0.5">*</span>
+              </label>
+              <input
+                type="text"
+                className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                value={company?.name || ""}
+                readOnly={!!company}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block font-medium text-gray-700 mb-1">Handelsnaam</label>
+              <input
+                type="text"
+                className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                value={company?.tradeNames?.[0] || ""}
+                readOnly={!!company}
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">KVK-nummer</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={company?.kvkNumber || ""}
+                readOnly
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Vestigingsnummer</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={company?.establishmentNumber || ""}
+                readOnly
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Onderneming */}
+        <div>
+          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-1 border-b border-gray-200">
+            Onderneming
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Rechtsvorm</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={company?.legalForm || ""}
+                readOnly
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Datum oprichting</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={company?.registeredAt || ""}
+                readOnly
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">SBI-code</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={sbi?.code || ""}
+                readOnly
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Status</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={company?.isActive ? "Actief" : "Niet actief"}
+                readOnly
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block font-medium text-gray-700 mb-1">SBI-omschrijving</label>
+              <input
+                type="text"
+                className="w-full bg-gray-50 border border-gray-300 text-gray-900 rounded-md px-3 py-2 cursor-not-allowed"
+                value={sbi?.description || ""}
+                readOnly
+              />
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Bezoekadres */}
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-1 border-b border-gray-200">
+              Bezoekadres
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+              <div className="md:col-span-4">
+                <label className="block font-medium text-gray-700 mb-1">Straat</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  value={addr?.street || ""}
+                  readOnly={!!company}
+                  maxLength={60}
+                />
+              </div>
+              <div className="md:col-span-1">
+                <label className="block font-medium text-gray-700 mb-1">Huisnr.</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  value={addr?.houseNumber || ""}
+                  readOnly={!!company}
+                />
+              </div>
+              <div className="md:col-span-1">
+                <label className="block font-medium text-gray-700 mb-1">Toev.</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  value={addr?.houseNumberAddition || ""}
+                  readOnly={!!company}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block font-medium text-gray-700 mb-1">Postcode</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  value={addr?.postalCode || ""}
+                  readOnly={!!company}
+                  placeholder="1234 AB"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block font-medium text-gray-700 mb-1">Plaats</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  value={addr?.city || ""}
+                  readOnly={!!company}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block font-medium text-gray-700 mb-1">Land</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                  value={addr?.country || "Nederland"}
+                  readOnly={!!company}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Postadres */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-1 border-b border-gray-200 flex items-center justify-between">
+              <span>Postadres</span>
+              <label className="flex items-center font-normal normal-case tracking-normal text-gray-600">
+                <input
+                  type="checkbox"
+                  className="mr-1"
+                  checked={mailSameAsVisit}
+                  onChange={(e) => setMailSameAsVisit(e.target.checked)}
+                />
+                Gelijk aan bezoekadres
+              </label>
+            </div>
+            {!mailSameAsVisit && (
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                <div className="md:col-span-4">
+                  <label className="block font-medium text-gray-700 mb-1">Straat</label>
+                  <input type="text" className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40" maxLength={60} />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block font-medium text-gray-700 mb-1">Huisnr.</label>
+                  <input type="text" className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40" />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block font-medium text-gray-700 mb-1">Toev.</label>
+                  <input type="text" className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block font-medium text-gray-700 mb-1">Postcode</label>
+                  <input type="text" className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block font-medium text-gray-700 mb-1">Plaats</label>
+                  <input type="text" className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block font-medium text-gray-700 mb-1">Land</label>
+                  <input type="text" className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40" defaultValue="Nederland" />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Contactgegevens */}
+        <div>
+          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2 pb-1 border-b border-gray-200">
+            Contactgegevens
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Telefoon</label>
+              <input
+                type="text"
+                className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                placeholder="+31 ..."
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">E-mail</label>
+              <input
+                type="email"
+                className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                placeholder="info@bedrijf.nl"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block font-medium text-gray-700 mb-1">Website</label>
+              <input
+                type="text"
+                className="w-full bg-white border border-gray-300 text-gray-900 rounded-md px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/40"
+                value={company?.website || ""}
+                placeholder="www.bedrijf.nl"
+                readOnly={!!company}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
   );
 }
 
-function ErrorBlock({ message }: { message: string }) {
-  return (
-    <div className="border-l-2 border-signal bg-signal/5 px-6 py-5">
-      <div className="text-[10px] uppercase tracking-[0.25em] text-signal">
-        Fout
-      </div>
-      <p className="mt-1 text-sm text-ink">{message}</p>
-    </div>
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent"
-      aria-hidden
-    />
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="mt-20 border-t border-ink/10 pt-6 text-xs text-muted">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span>KVK Basisprofiel · stap 1/2</span>
-        <span className="font-mono">v0.1.0</span>
-      </div>
-    </footer>
-  );
-}
