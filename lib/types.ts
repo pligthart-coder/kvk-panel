@@ -10,6 +10,8 @@ export type KvkCompany = {
   legalForm: string | null;
   /** Hoofdvestigingsnummer */
   establishmentNumber: string | null;
+  /** RSIN (Rechtspersonen Samenwerkingsverbanden Informatie Nummer) */
+  rsin: string | null;
   isActive: boolean;
   address: {
     street: string | null;
@@ -24,6 +26,10 @@ export type KvkCompany = {
   sbiCodes: Array<{ code: string; description: string }>;
   /** Inschrijvingsdatum bij de KVK (ISO 8601) */
   registeredAt: string | null;
+  /** Aantal werkzame personen */
+  employeeCount: number | null;
+  /** Aantal vestigingen */
+  branchCount: number | null;
 };
 
 /**

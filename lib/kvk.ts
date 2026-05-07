@@ -18,6 +18,7 @@ const MOCK_COMPANIES: Record<string, KvkCompany> = {
     tradeNames: ["Test EMZ Dagobert", "Tweede handelsnaam 1MZ"],
     legalForm: "Eenmanszaak",
     establishmentNumber: "000038509504",
+    rsin: null,
     isActive: true,
     address: {
       street: "Abebe Bikilalaan",
@@ -32,6 +33,8 @@ const MOCK_COMPANIES: Record<string, KvkCompany> = {
       { code: "7820", description: "Uitzendbureaus" },
     ],
     registeredAt: "2017-09-18",
+    employeeCount: 1,
+    branchCount: 1,
   },
   "33191000": {
     kvkNumber: "33191000",
@@ -39,6 +42,7 @@ const MOCK_COMPANIES: Record<string, KvkCompany> = {
     tradeNames: ["Heineken Nederland"],
     legalForm: "Besloten Vennootschap",
     establishmentNumber: "000017455020",
+    rsin: "002442874",
     isActive: true,
     address: {
       street: "Tweede Weteringplantsoen",
@@ -53,6 +57,8 @@ const MOCK_COMPANIES: Record<string, KvkCompany> = {
       { code: "1105", description: "Vervaardiging van bier" },
     ],
     registeredAt: "1991-01-01",
+    employeeCount: 2500,
+    branchCount: 15,
   },
   "27312152": {
     kvkNumber: "27312152",
@@ -60,6 +66,7 @@ const MOCK_COMPANIES: Record<string, KvkCompany> = {
     tradeNames: ["ASML"],
     legalForm: "Naamloze Vennootschap",
     establishmentNumber: "000015324656",
+    rsin: "805360883",
     isActive: true,
     address: {
       street: "De Run",
@@ -74,6 +81,8 @@ const MOCK_COMPANIES: Record<string, KvkCompany> = {
       { code: "2829", description: "Vervaardiging van overige machines" },
     ],
     registeredAt: "1984-04-01",
+    employeeCount: 35000,
+    branchCount: 60,
   },
 };
 
@@ -84,6 +93,7 @@ function makeFallbackMock(kvkNumber: string): KvkCompany {
     tradeNames: [`Demo ${kvkNumber}`],
     legalForm: "Besloten Vennootschap",
     establishmentNumber: `0000${kvkNumber}`,
+    rsin: null,
     isActive: true,
     address: {
       street: "Voorbeeldstraat",
@@ -96,6 +106,8 @@ function makeFallbackMock(kvkNumber: string): KvkCompany {
     website: null,
     sbiCodes: [{ code: "7022", description: "Organisatieadviesbureaus" }],
     registeredAt: "2020-01-01",
+    employeeCount: null,
+    branchCount: null,
   };
 }
 
@@ -114,16 +126,15 @@ export async function fetchKvkCompany(kvkNumber: string): Promise<KvkCompany | n
     return MOCK_COMPANIES[kvkNumber] ?? makeFallbackMock(kvkNumber);
   }
 
+  const baseUrl = process.env.KVK_API_BASE_URL ?? "https://api.kvk.nl/api/v1";
   const apiKey = process.env.KVK_API_KEY!;
 
-  // Probeer eerst de Zoeken API (v2) - deze is vaak sneller
+  // Gebruik de Basisprofiel API voor complete data
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
 
   try {
-    // Gebruik de Zoeken API om het bedrijf te vinden
-    const searchUrl = `https://api.kvk.nl/test/api/v2/zoeken?kvkNummer=${kvkNumber}`;
-    const searchRes = await fetch(searchUrl, {
+    const res = await fetch(`${baseUrl}/basisprofielen/${kvkNumber}`, {
       headers: { 
         apikey: apiKey,
         'Accept': 'application/json'
@@ -134,45 +145,14 @@ export async function fetchKvkCompany(kvkNumber: string): Promise<KvkCompany | n
     
     clearTimeout(timeoutId);
 
-    if (searchRes.status === 404) return null;
-    if (!searchRes.ok) {
-      const text = await searchRes.text();
-      throw new Error(`KVK Zoeken API error ${searchRes.status}: ${text.slice(0, 200)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`KVK API error ${res.status}: ${text.slice(0, 200)}`);
     }
 
-    const searchData = await searchRes.json() as any;
-    
-    // Check of we resultaten hebben
-    if (!searchData.resultaten || searchData.resultaten.length === 0) {
-      return null;
-    }
-
-    // Neem het eerste resultaat
-    const result = searchData.resultaten[0];
-    
-    // Map de zoekresultaten naar ons formaat
-    return {
-      kvkNumber: result.kvkNummer || kvkNumber,
-      name: result.naam || result.handelsnaam || "Onbekend",
-      tradeNames: result.handelsnamen || [],
-      legalForm: result.rechtsvorm || null,
-      establishmentNumber: result.vestigingsnummer || null,
-      isActive: result.actief !== false,
-      address: {
-        street: result.straatnaam || result.adres?.straatnaam || "",
-        houseNumber: result.huisnummer?.toString() || result.adres?.huisnummer?.toString() || "",
-        houseNumberAddition: result.huisnummerToevoeging || result.adres?.huisnummerToevoeging || null,
-        postalCode: result.postcode || result.adres?.postcode || "",
-        city: result.plaats || result.adres?.plaats || "",
-        country: "Nederland",
-      },
-      website: result.websites?.[0] || null,
-      sbiCodes: (result.sbiActiviteiten || []).map((sbi: any) => ({
-        code: sbi.sbiCode,
-        description: sbi.sbiOmschrijving,
-      })),
-      registeredAt: result.registratiedatum || null,
-    };
+    const data = await res.json() as KvkBasisprofielResponse;
+    return mapKvkResponse(data);
   } catch (err) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
@@ -190,15 +170,19 @@ type KvkBasisprofielResponse = {
   kvkNummer: string;
   naam?: string;
   formeleRegistratiedatum?: string;
+  rsin?: string;
   handelsnamen?: Array<{ naam: string; volgorde?: number }>;
+  totaalWerkzamePersonen?: number;
   _embedded?: {
     eigenaar?: {
       rechtsvorm?: string;
       uitgebreideRechtsvorm?: string;
+      rsin?: string;
     };
     hoofdvestiging?: {
       vestigingsnummer?: string;
       websites?: string[];
+      totaalWerkzamePersonen?: number;
       sbiActiviteiten?: Array<{
         sbiCode: string;
         sbiOmschrijving: string;
@@ -218,6 +202,11 @@ type KvkBasisprofielResponse = {
     registratieAanvang?: string;
     datumEinde?: string | null;
   };
+  links?: Array<{
+    rel?: string;
+    href?: string;
+  }>;
+  aantalVestigingen?: number;
   rechtsvorm?: string;
 };
 
@@ -232,6 +221,7 @@ function mapKvkResponse(data: KvkBasisprofielResponse): KvkCompany {
     tradeNames: (data.handelsnamen ?? []).map((h) => h.naam),
     legalForm: data._embedded?.eigenaar?.rechtsvorm ?? null,
     establishmentNumber: hoofd?.vestigingsnummer ?? null,
+    rsin: data.rsin ?? data._embedded?.eigenaar?.rsin ?? null,
     isActive: !data.materieleRegistratie?.datumEinde,
     address: {
       street: bezoek?.straatnaam ?? null,
@@ -247,5 +237,7 @@ function mapKvkResponse(data: KvkBasisprofielResponse): KvkCompany {
       description: s.sbiOmschrijving,
     })),
     registeredAt: data.formeleRegistratiedatum ?? null,
+    employeeCount: data.totaalWerkzamePersonen ?? hoofd?.totaalWerkzamePersonen ?? null,
+    branchCount: data.aantalVestigingen ?? null,
   };
 }
