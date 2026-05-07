@@ -98,20 +98,33 @@ export async function fetchKvkCompany(kvkNumber: string): Promise<KvkCompany | n
 
   // We halen het basisprofiel op. Documentatie:
   // https://developers.kvk.nl/documentation/basisprofiel-api
-  const res = await fetch(`${baseUrl}/basisprofielen/${kvkNumber}`, {
-    headers: { apikey: apiKey },
-    // Caching uitschakelen — bedrijfsgegevens kunnen wijzigen.
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`KVK API gaf ${res.status}: ${text.slice(0, 200)}`);
+  try {
+    const res = await fetch(`${baseUrl}/basisprofielen/${kvkNumber}`, {
+      headers: { apikey: apiKey },
+      // Caching uitschakelen — bedrijfsgegevens kunnen wijzigen.
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`KVK API gaf ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    const data = (await res.json()) as KvkBasisprofielResponse;
+    return mapKvkResponse(data);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('KVK API timeout - probeer het later opnieuw');
+    }
+    throw err;
   }
-
-  const data = (await res.json()) as KvkBasisprofielResponse;
-  return mapKvkResponse(data);
 }
 
 /**

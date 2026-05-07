@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchKvkCompany } from "@/lib/kvk";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10; // Allow up to 10 seconds for KVK API calls
 
 export async function GET(
   _req: Request,
