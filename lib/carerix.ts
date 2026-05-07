@@ -161,11 +161,14 @@ export async function createCompanyInCarerix(kvkCompany: any): Promise<{ success
       _kind: 'CRCompany',
       name: kvkCompany.name,
       kvkNumber: kvkCompany.kvkNumber,
-      address: fullAddress || null,
-      postalCode: kvkCompany.address.postalCode || null,
-      city: kvkCompany.address.city || null,
-      country: kvkCompany.address.country || null,
-      website: kvkCompany.website || null,
+      visitAddress: fullAddress || null,
+      visitPostalCode: kvkCompany.address.postalCode || null,
+      visitCity: kvkCompany.address.city || null,
+      // Note: Carerix uses "visit" prefix for address fields
+      // Most KVK fields are NOT supported in the standard schema:
+      // - country, website, tradeNames, legalForm, establishmentNumber, rsin
+      // - isActive, sbiCodes, registeredAt, employeeCount, branchCount
+      // You need to add these as CUSTOM FIELDS in Carerix to store this data
     },
   };
 
