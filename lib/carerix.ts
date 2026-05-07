@@ -156,35 +156,48 @@ export async function createCompanyInCarerix(kvkCompany: any): Promise<{ success
     }
   `;
 
+  // Build request object - only include nodes if values are present
+  const request: any = {
+    _kind: 'CRCompany',
+    name: kvkCompany.name,
+    kvkNumber: kvkCompany.kvkNumber,
+    visitAddress: fullAddress || null,
+    visitPostalCode: kvkCompany.address.postalCode || null,
+    visitCity: kvkCompany.address.city || null,
+    url: kvkCompany.website || null,
+  };
+
+  // Add country node if country is provided
+  // Carerix will lookup the country by its value (flexible - works with any country name in your system)
+  if (kvkCompany.address.country) {
+    request.toVisitCountryNode = {
+      _kind: 'CRDataNode',
+      _lookup: {
+        key: 'value',
+        value: kvkCompany.address.country
+      }
+    };
+  }
+
+  // Add status node - lookup by value (Actief/Inactief or Active/Inactive depending on your Carerix setup)
+  // If the exact value doesn't exist, Carerix will use the default status or fail gracefully
+  if (kvkCompany.isActive !== undefined && kvkCompany.isActive !== null) {
+    request.toStatusNode = {
+      _kind: 'CRDataNode',
+      _lookup: {
+        key: 'value',
+        value: kvkCompany.isActive ? 'Actief' : 'Inactief'
+      }
+    };
+  }
+
   const variables = {
-    request: {
-      _kind: 'CRCompany',
-      name: kvkCompany.name,
-      kvkNumber: kvkCompany.kvkNumber,
-      visitAddress: fullAddress || null,
-      visitPostalCode: kvkCompany.address.postalCode || null,
-      visitCity: kvkCompany.address.city || null,
-      url: kvkCompany.website || null,
-      toVisitCountryNode: kvkCompany.address.country ? {
-        _kind: 'CRDataNode',
-        _lookup: {
-          key: 'value',
-          value: kvkCompany.address.country
-        }
-      } : null,
-      toStatusNode: {
-        _kind: 'CRDataNode',
-        _lookup: {
-          key: 'value',
-          value: kvkCompany.isActive ? 'Actief' : 'Inactief'
-        }
-      },
-      // Note: Carerix uses "visit" prefix for address fields
-      // Most KVK fields are NOT supported in the standard schema:
-      // - tradeNames, legalForm, establishmentNumber, rsin
-      // - sbiCodes, registeredAt, employeeCount, branchCount
-      // You need to add these as CUSTOM FIELDS in Carerix to store this data
-    },
+    request,
+    // Note: Carerix uses "visit" prefix for address fields
+    // Most KVK fields are NOT supported in the standard schema:
+    // - tradeNames, legalForm, establishmentNumber, rsin
+    // - sbiCodes, registeredAt, employeeCount, branchCount
+    // You need to add these as CUSTOM FIELDS in Carerix to store this data
   };
 
   const response = await fetch(config.apiUrl, {
